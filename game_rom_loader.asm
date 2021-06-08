@@ -8,7 +8,7 @@
 ; (On entry, R0 is our program counter)
 
     CPU         1802
-    ORG         $CA00
+    ORG         $D000
 
     ; Setup code to initialize the stack and SCRT registers
     ; SETUP R2 (Stack)
@@ -43,6 +43,14 @@
 ; - RF.1 is trashed.
 ; When in a subroutine, R6=Caller
 
+;__________________________________________________________________________________________________
+; Decompressor code
+
+    INCL        "decompress.asm"
+
+;__________________________________________________________________________________________________
+; Main logic for game loader
+
 LoaderStart
     ; set up baud rate register
     LDI  HIGH BAUD
@@ -54,6 +62,81 @@ LoaderStart
     LDN  R7
     PLO  RE
 
+    ; decompress Splash screen into RAM
+    LDI  $C9
+    PHI  R7
+    LDI  $9B
+    PLO  R7                         ; R7 points to the size of the compressed block
+    LDA  R7
+    PHI  R8
+    LDA  R7                         ; now R7 points to the size of the uncompressed text
+    ADI  $9F
+    PLO  R8
+    GHI  R8
+    ADCI $C9
+    PHI  R8                         ; R8 points to one byte past the end of the compressed data
+    LDI  $00                        ; decompressed data should be stored at $0013
+    PHI  R9
+    LDI  $13
+    PLO  R9
+    LDA  R7
+    ADI  $13
+    PLO  RA
+    LDA  R7                         ; now R7 points to the start of the compressed data
+    ADCI $00
+    PHI  RA                         ; RA points to one byte past the end of the uncompressed data
+    SEP  R4
+    DW   Do_ULZ_Decompress          ; defined in decompress.asm
+
+    ; check for errors
+    BZ   SplashOkay
+    LBR  DecompressFailed
+
+SplashOkay
+    ; null-terminate the splash screen string
+    STR  R9
+    
+    ; print the splash screen
+    LDI  $00
+    PHI  R7
+    LDI  $13
+    PLO  R7
+    SEP  R4
+    DW   MON_OUTSTR
+    
+    ; find the end of the first block of text
+FindTextEnd
+    INC  R7
+    LDN  R7
+    BNZ  FindTextEnd
+    ; did we just print everything that was decompressed?
+    LDI  $01
+    PLO  RA                         ; RA is our "print again" flag
+    GHI  R9
+    STR  R2
+    GHI  R7
+    SM
+    BNZ  KeyWait
+    GLO  R9
+    STR  R2
+    GLO  R7
+    SM
+    BNZ  KeyWait
+    DEC  RA                         ; we already printed everything
+
+KeyWait
+    ; wait for a keypress
+    SEP  R4
+    DW   MON_INPUT
+    ; should we print another message?
+    GLO  RA
+    BZ   PrintDecompressing
+    ; Yes, print the instructions (following the splash screen) now
+    INC  R7
+    SEP  R4
+    DW   MON_OUTSTR
+
+PrintDecompressing
     ; print Decompressing message
     LDI  HIGH StartingMsg
     PHI  R7
@@ -63,27 +146,29 @@ LoaderStart
     DW   MON_OUTSTR
     
     ; decompress Adventureland program into RAM
-    LDI  $D0
+    LDI  HIGH CompressedSize
     PHI  R7
-    LDI  $05
+    LDI  LOW CompressedSize
     PLO  R7                         ; R7 points to the size of the compressed block
     LDA  R7
     PHI  R8
-    LDA  R7                         ; now R7 points to the start of the compressed data
+    LDA  R7                         ; now R7 points to the size of the uncompressed game data, little endian
     PLO  R8                         ; R8 holds the compressed data size
-    ADI  $07
+    ADI  LOW (CompressedSize+4)
     PLO  R8
     GHI  R8
-    ADCI $D0
+    ADCI HIGH (CompressedSize+4)
     PHI  R8                         ; R8 points to one byte past the end of the compressed data
-    LDI  $00                        ; decompressed data should be stored at $0013
+    LDI  $00
     PHI  R9
     LDI  $13
-    PLO  R9
-    LDI  $49                        ; can't write past $4900
-    PHI  RA
-    LDI  $00
+    PLO  R9                         ; R9 decompressed data should be stored at $0013
+    LDA  R7
+    ADI  $13
     PLO  RA
+    LDA  R7                         ; now R7 points to the start of the compressed data
+    ADCI $00
+    PHI  RA
     SEP  R4
     DW   Do_ULZ_Decompress          ; defined in decompress.asm
 
@@ -91,7 +176,9 @@ LoaderStart
     BZ   DecompressOkay
     
     ; not okay
+DecompressFailed
     PHI  R1                         ; put error code in R1 so developer can see it in the monitor
+    
     LDI  HIGH ErrorMsg
     PHI  R7
     LDI  LOW ErrorMsg
@@ -108,9 +195,9 @@ Exit
 
     ; write LBR instruction at 0010 to jump into the game program
 DecompressOkay
-    LDI  $D0                        ; defined in adv_core_ulz.asm
+    LDI  HIGH GameStartAddr         ; starting address of the game in RAM is stored here by build_rom.py
     PHI  R7
-    LDI  $03
+    LDI  LOW GameStartAddr
     PLO  R7                         ; R7 points to the size of the starting address of the game
     LDI  $00
     PHI  R8
@@ -129,15 +216,16 @@ DecompressOkay
     LBR  $0010
 
 ;__________________________________________________________________________________________________
-; Decompressor code
-
-    INCL        "decompress.asm"
-
-;__________________________________________________________________________________________________
 ; Read-only Data
 
-StartingMsg     BYTE        "\r\nDecompressing...", 0
-ErrorMsg        BYTE        "\r\nDecompression failed, jumping back to monitor.\r\n", 0
+StartingMsg     BYTE        "\r\n\nDecompressing...", 0
+ErrorMsg        BYTE        "\r\n\nDecompress failed.\r\n", 0
+
+; These 3 fields must be at the end of the file
+; They will get replaced with the correct values by the build script
+GameStartAddr   DW          0
+CompressedSize  DW          0
+GameRamSize     DW          0
 
     END
 
