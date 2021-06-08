@@ -1,6 +1,6 @@
 ;__________________________________________________________________________________________________
 ; Serial Input: 9600 baud, normal RS232 logic
-; IN:       P=7
+; IN:       P=7, X=2
 ; OUT:      P=3, RF.1 = received character
 ; TRASHED:  R8
 
@@ -20,40 +20,29 @@ B96StopBitLoop              ; Wait for the stop bit
     PHI RF
 
 B96DrawLights
+    B3  B96FoundStartBit
     LDA R8                  ; load next bit pattern in LED animation
     STR R2                  ; put it on the stack
     B3  B96FoundStartBit
     OUT 4                   ; output to LEDs
     DEC R2                  ; restore stack pointer to original value
+    B3  B96FoundStartBit
     GLO R8                  ; load the low byte of the current bit pattern pointer
     SMI LOW KnightRider+44  ; is it at the end of the animation sequence?
     B3  B96FoundStartBit
     BNZ B96WaitStartBit     ; if not, go burn CPU cycles and wait for the start bit
-    
-    LDI LOW Rand_VarX       ; we have to reset the pointer, so begin by instead
-    PLO R8
-    LDI HIGH Rand_VarX      ; loading a pointer to the psuedo-random generator's X value
-    B3 B96FoundStartBit
-    PHI R8
-    LDN R8
-    ADI $01                 ; and incrementing this value in memory, to make the generator's
-    STR R8                  ; values non-deterministic
-    B3 B96FoundStartBit
-    
     LDI LOW KnightRider     ; now re-load the bit pattern pointer
-    PLO R8
-    LDI HIGH KnightRider
-    PHI R8
     B3  B96FoundStartBit
-
+    PLO R8
 B96WaitStartBit
     LDI $00         ; animation inner loop counter
 
 B96StartBitLoop
     NOP
-    NOP
     B3  B96FoundStartBit
+    NOP
     SMI $01
+    B3  B96FoundStartBit
     NOP
     NOP
     B3  B96FoundStartBit
@@ -82,11 +71,20 @@ B96IN4
     PHI RF
     LBDF B96StartDelay
     
+    STR R2                  ; put new char on the stack
+    LDI LOW Rand_VarX       ; load a pointer to the psuedo-random generator's X value
+    PLO R8
+    LDI HIGH Rand_VarX
+    PHI R8
+    LDN R8                  ; get the X value
+    ADD                     ; and add the value of the input character, to make the generator's
+    STR R8                  ; values non-deterministic
+    
     BR  B96IN_Return
 
 ;__________________________________________________________________________________________________
 ; Serial Input: 9600 baud, inverted RS232 logic
-; IN:       P=7
+; IN:       P=7, X=2
 ; OUT:      P=3, RF.1 = received character
 ; TRASHED:  R8
 
@@ -106,40 +104,30 @@ Bi96StopBitLoop              ; Wait for the stop bit
     PHI RF
 
 Bi96DrawLights
+    BN3 Bi96FoundStartBit
     LDA R8                  ; load next bit pattern in LED animation
     STR R2                  ; put it on the stack
     BN3 Bi96FoundStartBit
     OUT 4                   ; output to LEDs
     DEC R2                  ; restore stack pointer to original value
+    BN3 Bi96FoundStartBit
     GLO R8                  ; load the low byte of the current bit pattern pointer
     SMI LOW KnightRider+44  ; is it at the end of the animation sequence?
     BN3 Bi96FoundStartBit
     BNZ Bi96WaitStartBit    ; if not, go burn CPU cycles and wait for the start bit
-    
-    LDI LOW Rand_VarX       ; we have to reset the pointer, so begin by instead
-    PLO R8
-    LDI HIGH Rand_VarX      ; loading a pointer to the psuedo-random generator's X value
-    BN3 Bi96FoundStartBit
-    PHI R8
-    LDN R8
-    ADI $01                 ; and incrementing this value in memory, to make the generator's
-    STR R8                  ; values non-deterministic
-    BN3 Bi96FoundStartBit
-    
     LDI LOW KnightRider     ; now re-load the bit pattern pointer
-    PLO R8
-    LDI HIGH KnightRider
-    PHI R8
     BN3 Bi96FoundStartBit
+    PLO R8
 
 Bi96WaitStartBit
     LDI $00         ; animation inner loop counter
 
 Bi96StartBitLoop
     NOP
-    NOP
     BN3 Bi96FoundStartBit
+    NOP
     SMI $01
+    BN3 Bi96FoundStartBit
     NOP
     NOP
     BN3 Bi96FoundStartBit
@@ -168,6 +156,15 @@ Bi96IN4
     PHI RF
     LBDF Bi96StartDelay
     
+    STR R2                  ; put new char on the stack
+    LDI LOW Rand_VarX       ; load a pointer to the psuedo-random generator's X value
+    PLO R8
+    LDI HIGH Rand_VarX
+    PHI R8
+    LDN R8                  ; get the X value
+    ADD                     ; and add the value of the input character, to make the generator's
+    STR R8                  ; values non-deterministic
+
     BR  Bi96IN_Return
 
 ;__________________________________________________________________________________________________
@@ -803,10 +800,6 @@ Exit
 
 Do_Main
     ; beginning of main() function
-    ; clear screen
-    SEP  R4
-    DW   ClearScreen
-
     ; Print welcome message
     LDI  HIGH StartingMsg
     PHI  R8
@@ -814,17 +807,6 @@ Do_Main
     PLO  R8
     SEP  R4
     DW   OutString
-
-    ; wait for key press
-    LDI HIGH SerialInput
-    PHI R7
-    LDI LOW SerialInput
-    PLO R7
-    SEP R7
-    
-    ; clear screen
-    SEP  R4
-    DW   ClearScreen
 
     ; start of main loop
 MainLoad
@@ -943,6 +925,29 @@ MainLoopTail
     BR   MainGetInput              ; otherwise, get next command
 
 ;__________________________________________________________________________________________________
+; Adventure get_action_variable() function
+
+; IN:       P=F, RE=pAcVar
+; OUT:      P=3, D=value
+; TRASHED:  N/A
+
+GAV_Return
+    SEP  R3
+Sub_GetActionVariable
+    INC  RE
+    INC  RE
+GAV_Loop1
+    INC  RE
+    LDN  RE
+    BZ   GAV_FoundVar
+    INC  RE
+    BR   GAV_Loop1
+GAV_FoundVar
+    DEC  RE
+    LDN  RE
+    BR   GAV_Return
+
+;__________________________________________________________________________________________________
 ; Adventure get_input() function
 
 ; IN:       N/A
@@ -999,7 +1004,7 @@ GILoop1N1
     ; handle enter or return
     GHI  RF
     SMI  $0A
-    BZ   GIEnter
+    LBZ  GIEnter
     GHI  RF
     SMI  $0D
     BNZ  GILoop1N2
@@ -2486,16 +2491,16 @@ DAAction65LoopTail
     DEC  RC
     GLO  RC
     BNZ  DAAction65Loop
-    LDI  LOW (Action3Msg+21)
+    LDI  LOW (Action3_2Msg)
     PLO  R8
-    LDI  HIGH (Action3Msg+21)
+    LDI  HIGH (Action3_2Msg)
     PHI  R8
     GHI  RC
     SEP  R4
     DW   Print2Digit                ; convert # of treasures to 2-digit number
-    LDI  LOW (Action3Msg+78)
+    LDI  LOW (Action3_3Msg)
     PLO  R8
-    LDI  HIGH (Action3Msg+78)
+    LDI  HIGH (Action3_3Msg)
     PHI  R8
     GHI  RC
     ADI  LOW ScoreTable
@@ -2506,9 +2511,9 @@ DAAction65LoopTail
     LDN  RD
     SEP  R4
     DW   Print2Digit                ; convert # of treasures to 2-digit number
-    LDI  LOW Action3Msg
+    LDI  LOW Action3_1Msg
     PLO  R8
-    LDI  HIGH Action3Msg
+    LDI  HIGH Action3_1Msg
     PHI  R8
     SEP  R4
     DW   OutString                  ; print "I've stored XX treasures.  On a scale of 0 to 99, that rates a XX."
@@ -2752,29 +2757,6 @@ DADoLook
     BR   DAReturnFalse3
 
 ;__________________________________________________________________________________________________
-; Adventure get_action_variable() function
-
-; IN:       P=F, RE=pAcVar
-; OUT:      P=3, D=value
-; TRASHED:  N/A
-
-GAV_Return
-    SEP  R3
-Sub_GetActionVariable
-    INC  RE
-    INC  RE
-GAV_Loop1
-    INC  RE
-    LDN  RE
-    BZ   GAV_FoundVar
-    INC  RE
-    BR   GAV_Loop1
-GAV_FoundVar
-    DEC  RE
-    LDN  RE
-    BR   GAV_Return
-
-;__________________________________________________________________________________________________
 ; Adventure yes_no() function
 
 ; IN:       N/A
@@ -2894,54 +2876,46 @@ SGLoop2
 
 ScoreTable      DB          0, 7, 15, 22, 30, 38, 45, 53, 60, 68, 76, 83, 91, 99
 KnightRider     DB          $00, $00, $80, $80, $C0, $C0, $E0, $60, $70, $30, $38, $18, $1C, $0C, $0E, $06, $07, $03, $03, $01, $01, $00, $00, $01, $01, $03, $03, $07, $06, $0E, $0C, $1C, $18, $38, $30, $70, $60, $E0, $C0, $C0, $80, $80, $00, $00
-ClsMsg          DB          $1B, $5B, $32, $4A, $1B, $48, $00
-StartingMsg     BYTE        27,"[1;37m W E L C O M E   T O \n A D V E N T U R E + \n ",27,"[44m(v1.1 2019-12-20)",27,"[0m\r\n\n\n"
-                BYTE        "The object of your adventure is to find ",27,"[1;33mtreasures",27,"[0m and return them\r\n"
-                BYTE        "to the proper place for you to accumulate points.  I'm your clone.  Give me\r\n"
-                BYTE        "commands that consist of a verb & noun, i.e. GO EAST, TAKE KEY, CLIMB TREE,\r\n"
-                BYTE        "SAVE GAME, TAKE INVENTORY, FIND AXE, QUIT, etc.\r\n\n"
-                BYTE        "You'll need some special items to do some things, but I'm sure that you'll be\r\n"
-                BYTE        "a good adventurer and figure these things out (which is most of the fun of\r\n"
-                BYTE        "this game).\r\n\n"
-                BYTE        "Note that going in the opposite direction won't always get you back to where\r\n"
-                BYTE        "you were.\r\n\n\n"
-                BYTE        "HAPPY ADVENTURING!!!\r\n\n\n"
-                BYTE        27,"[1m************************** Press any key to continue **************************",27,"[0m"
+ClsMsg          BYTE	    "{clrscr}{home}", 0
+StartingMsg     BYTE        "\r\n\n{bold}{white}Welcome To \n Adventure+ \n {bgblue}(v1.2 2020-04-20){noattr}\r\n\n"
+                BYTE        "By: Scott Adams, Morten Lohre, and Richard Goedeken\r\n"
 NewlineMsg      BYTE        "\r\n", 0
-LoadQestion     BYTE        27,"[36m\r\nLoad saved game (Y or N)?",27,"[0m ", 0
-LoadFailedMsg   BYTE        27,"[1mSorry, but no saved game data was found.\r\n",27,"[0;36mPress a key to continue...",27,"[0m\r\n", 0
-LampEmptyMsg    BYTE        27,"[31mYour lamp has run out of oil!",27,"[0m\r\n", 0
-LampLow1Msg     BYTE        27,"[31mYour lamp will run out of oil in ",0
-LampLow2Msg     BYTE        " turns!",27,"[0m\r\n",0
-InputPromptMsg  BYTE        "\r\n",27,"[36mTell me what to do? ",27,"[0m",0
-InputError1Msg  BYTE        27,"[1mI don't know how to ",0
-InputError2Msg  BYTE        "!",27,"[0m\r\n", 0
-InputError3Msg  BYTE        27,"[1mI don't know what a ", 0
-InputError4Msg  BYTE        " is!",27,"[0m\r\n", 0
-Look1Msg        BYTE        27,"[1;31mI can't see.  It's too dark!",27,"[0m\r\n", 0
+LoadQestion     BYTE        "{cyan}\r\nLoad saved game (Y or N)?{noattr} ", 0
+LoadFailedMsg   BYTE        "{bold}Sorry, but no saved game data was found.\r\n{noattr}{cyan}Press a key to continue...{noattr}\r\n", 0
+LampEmptyMsg    BYTE        "{red}Your lamp has run out of oil!{noattr}\r\n", 0
+LampLow1Msg     BYTE        "{red}Your lamp will run out of oil in ",0
+LampLow2Msg     BYTE        " turns!{noattr}\r\n",0
+InputPromptMsg  BYTE        "\r\n{cyan}Tell me what to do? {noattr}",0
+InputError1Msg  BYTE        "{bold}I don't know how to ",0
+InputError2Msg  BYTE        "!{noattr}\r\n", 0
+InputError3Msg  BYTE        "{bold}I don't know what a ", 0
+InputError4Msg  BYTE        " is!{noattr}\r\n", 0
+Look1Msg        BYTE        "{bold}{red}I can't see.  It's too dark!{noattr}\r\n", 0
 Look2Msg        BYTE        "I'm in a ", 0
-Look3Msg        BYTE        "\r\n\n",27,"[1;34mVisible Items Here:",27,"[0m\r\n", 0
-Look4Msg        BYTE        "\r\n",27,"[1;34mObvious Exits:",27,"[0m\r\n   ", 0
-Turn1Msg        BYTE        27,"[36mWhere do you want me to go? Give me a direction too.",27,"[0m\r\n", 0
-Turn2Msg        BYTE        27,"[1;31mWarning: it's dangerous to move in the dark!",27,"[0m\r\n", 0
-Turn3Msg        BYTE        27,"[31mI can't go in that direction.",27,"[0m\r\n", 0
-Turn4Msg        BYTE        27,"[1;31mI fell down and broke my neck.",27,"[0m\r\n", 0
-Turn5Msg        BYTE        27,"[31mI don't understand your command.",27,"[0m\r\n", 0
-Turn6Msg        BYTE        27,"[31mI can't do that yet.",27,"[0m\r\n", 0
-CarryDrop1Msg   BYTE        27,"[1mWhat?",27,"[0m\r\n", 0
-CarryDrop2Msg   BYTE        27,"[31mI can't. I'm carrying too much!",27,"[0m\r\n", 0
-CarryDrop3Msg   BYTE        27,"[1mOK, taken.",27,"[0m\r\n", 0
-CarryDrop4Msg   BYTE        27,"[31mI don't see it here.",27,"[0m\r\n", 0
-CarryDrop5Msg   BYTE        27,"[1mOK, dropped.",27,"[0m\r\n", 0
-CarryDrop6Msg   BYTE        27,"[31mI'm not carrying it!",27,"[0m\r\n", 0
-CarryDrop7Msg   BYTE        27,"[31mIt's beyond my power to do that.",27,"[0m\r\n", 0
-Action1Msg      BYTE        27,"[1;31mI'm dead...",27,"[0m\r\n", 0
-Action2Msg      BYTE        27,"[1mThe game is now over.\r\n",27,"[0;36mAnother game? ",27,"[0m",0
-Action3Msg      BYTE        27,"[1mI've stored ",27,"[33m00 treasures",27,"[37m.  On a scale\r\nof 0 to 99, that rates a 00.",27,"[0m\r\n", 0
-Action4Msg      BYTE        27,"[1mCongratulations! You scored a Perfect Game!\r\nYou are one smart adventurer!\r\n",27,"[33mKick back and grab a cold one, you've earned it.",27,"[0m\r\n\nThe game is now over.\r\nAnother game? ",0
-Action5Msg      BYTE        27,"[1;34m\r\nI'm carrying:",27,"[0m\r\n", 0
+Look3Msg        BYTE        "\r\n\n{bold}{blue}Visible Items Here:{noattr}\r\n", 0
+Look4Msg        BYTE        "\r\n{bold}{blue}Obvious Exits:{noattr}\r\n   ", 0
+Turn1Msg        BYTE        "{cyan}Where do you want me to go? Give me a direction too.{noattr}\r\n", 0
+Turn2Msg        BYTE        "{bold}{red}Warning: it's dangerous to move in the dark!{noattr}\r\n", 0
+Turn3Msg        BYTE        "{red}I can't go in that direction.{noattr}\r\n", 0
+Turn4Msg        BYTE        "{bold}{red}I fell down and broke my neck.{noattr}\r\n", 0
+Turn5Msg        BYTE        "{red}I don't understand your command.{noattr}\r\n", 0
+Turn6Msg        BYTE        "{red}I can't do that yet.{noattr}\r\n", 0
+CarryDrop1Msg   BYTE        "{bold}What?{noattr}\r\n", 0
+CarryDrop2Msg   BYTE        "{red}I can't. I'm carrying too much!{noattr}\r\n", 0
+CarryDrop3Msg   BYTE        "{bold}OK, taken.{noattr}\r\n", 0
+CarryDrop4Msg   BYTE        "{red}I don't see it here.{noattr}\r\n", 0
+CarryDrop5Msg   BYTE        "{bold}OK, dropped.{noattr}\r\n", 0
+CarryDrop6Msg   BYTE        "{red}I'm not carrying it!{noattr}\r\n", 0
+CarryDrop7Msg   BYTE        "{red}It's beyond my power to do that.{noattr}\r\n", 0
+Action1Msg      BYTE        "{bold}{red}I'm dead...{noattr}\r\n", 0
+Action2Msg      BYTE        "{bold}The game is now over.\r\n{noattr}{cyan}Another game? {noattr}",0
+Action3_1Msg    BYTE        "{bold}I've stored {yellow}"
+Action3_2Msg    BYTE        "00 treasures{white}.  On a scale\r\nof 0 to 99, that rates a "
+Action3_3Msg    BYTE        "00.{noattr}\r\n", 0
+Action4Msg      BYTE        "{bold}Congratulations! You scored a Perfect Game!\r\nYou are one smart adventurer!\r\n{yellow}Kick back and grab a cold one, you've earned it.{noattr}\r\n\nThe game is now over.\r\nAnother game? ",0
+Action5Msg      BYTE        "{bold}{blue}\r\nI'm carrying:{noattr}\r\n", 0
 Action6Msg      BYTE        "Nothing!", 0
-Action7Msg      BYTE        27,"[1mGame state has been saved in upper memory.",27,"[0m\r\n", 0
+Action7Msg      BYTE        "{bold}Game state has been saved in upper memory.{noattr}\r\n", 0
 
                 INCL        "adventureland_data.asm"
 
